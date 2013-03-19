@@ -78,6 +78,58 @@ def unigram_tag(common_file, test_file, counts_file):
 
         print "%s %s" % (word, tag)
 
+class Tag_Node:
+
+    def __init__(self, word, tag):
+        self.word = word
+        self.tag = tag
+        self.hmm = hmm
+
+    def search(self, prev_tags, hmm):
+        pass
+
+def print_tag_result(node_list):
+    pass
+
+def create_nodes_from_word(word):
+    return [Tag_Node(word, "O"), Tag_Node(word, "I-GENE")]
+
+def trigram_tag(common_file, test_file, counts_file):
+    hmm = Hmm(3)
+    hmm.read_counts(counts_file)
+
+    common_words = Set()
+    for word in common_file:
+        common_words.add(word.strip())
+
+    total_O_count = 0
+    total_GENE_count = 0
+    for k,v in hmm.emission_counts.iteritems():
+        if k[1] == "O":
+            total_O_count += v
+        else:
+            total_GENE_count += v
+
+    node_list = []
+    index = 0
+    for line in test_file:
+        word = line.strip()
+
+        if len(word) == 0:
+
+            print_tag_result(node_list)
+            node_list = []
+            index = 0
+            continue
+
+        nodes = create_nodes_from_word(word)
+        prev_nodes = []
+        if index > 0:
+            prev_nodes = node_list[index - 1]
+
+        for node in nodes:
+            node.search(prev_tags)
+
 import argparse
 
 if __name__ == '__main__':
@@ -85,7 +137,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='a simple tagger implement')
     parser.add_argument('action', metavar='action',
                         help="""the action should be performed, possible action:
-                        show_common_words replace_rare unigram_tag trigram_tag extend_tag""")
+                        show_common_words replace_rare replace_rare_extend unigram_tag trigram_tag extend_tag""")
     parser.add_argument('--counts_file', type=argparse.FileType('r'),
                         help="counts result from count_freqs.py")
     parser.add_argument('--common_file', type=argparse.FileType('r'),
