@@ -3,6 +3,7 @@ import sys
 from collections import defaultdict
 from count_freqs import Hmm
 
+from sets import Set
 
 def show_common(counts_file):
     words_count = defaultdict(int)
@@ -20,7 +21,6 @@ def show_common(counts_file):
         if count >= 5:
             print word
 
-from sets import Set
 def replace_rare(train_file, common_file):
 
     common_words = Set()
@@ -83,13 +83,13 @@ class Tag_Node:
 
     def search(self, prev_nodes, hmm):
 
-        print "self: ", self.word, self.tag
-        print "emission_prob: ", math.log(self.get_emission_prob(hmm))
+        #print "self: ", self.word, self.tag
+        #print "emission_prob: ", math.log(self.get_emission_prob(hmm))
 
         if len(prev_nodes) == 0:
-            print "trigram: ", "*", "*", self.tag, math.log(self.get_trigram_prob(hmm, "*", "*", self.tag))
+            #print "trigram: ", "*", "*", self.tag, math.log(self.get_trigram_prob(hmm, "*", "*", self.tag))
             self.value = math.log(self.get_trigram_prob(hmm, "*", "*", self.tag)) + math.log(self.get_emission_prob(hmm))
-            print ""
+            #print ""
             return
 
         max_prev_node = None
@@ -97,13 +97,13 @@ class Tag_Node:
 
         for node in prev_nodes:
             curr_value = 0
-            print "prev node: ", node.word, node.tag, "prev node value: ", node.value
+            #print "prev node: ", node.word, node.tag, "prev node value: ", node.value
 
             if node.prev:
-                print "trigram: ", node.prev.tag, node.tag, self.tag, math.log(self.get_trigram_prob(hmm, node.prev.tag, node.tag, self.tag))
+                #print "trigram: ", node.prev.tag, node.tag, self.tag, math.log(self.get_trigram_prob(hmm, node.prev.tag, node.tag, self.tag))
                 curr_value = node.value + math.log(self.get_trigram_prob(hmm, node.prev.tag, node.tag, self.tag)) + math.log(self.get_emission_prob(hmm))
             else:
-                print "trigram: ", "*", node.tag, self.tag, math.log(self.get_trigram_prob(hmm, "*", node.tag, self.tag))
+                #print "trigram: ", "*", node.tag, self.tag, math.log(self.get_trigram_prob(hmm, "*", node.tag, self.tag))
                 curr_value = node.value + math.log(self.get_trigram_prob(hmm, "*", node.tag, self.tag)) + math.log(self.get_emission_prob(hmm))
 
             if curr_value > max_value or not max_prev_node:
@@ -114,7 +114,7 @@ class Tag_Node:
         self.prev = max_prev_node
         self.value = max_value
 
-        print ""
+        #print ""
 
     def stop(self, hmm):
         if self.prev:
@@ -125,13 +125,13 @@ class Tag_Node:
     def get_emission_prob(self, hmm):
 
         if self.replace:
-            print "get_emission_prob replace ", self.replace, self.tag, hmm.emission_counts[(self.replace, self.tag)]
+            #print "get_emission_prob replace ", self.replace, self.tag, hmm.emission_counts[(self.replace, self.tag)]
             count_word_tag = hmm.emission_counts[(self.replace, self.tag)]
         else:
             count_word_tag = hmm.emission_counts[(self.word, self.tag)]
-            print "get_emission_prob word ", self.word, self.tag, hmm.emission_counts[(self.word, self.tag)]
+            #print "get_emission_prob word ", self.word, self.tag, hmm.emission_counts[(self.word, self.tag)]
 
-        print "get_emission_prob total count: ", self.tag, hmm.ngram_counts[0][(self.tag,)]
+        #print "get_emission_prob total count: ", self.tag, hmm.ngram_counts[0][(self.tag,)]
         return count_word_tag / hmm.ngram_counts[0][(self.tag,)]
 
     def get_trigram_prob(self, hmm, yi_2, yi_1, yi):
@@ -216,6 +216,88 @@ def trigram_tag(common_file, test_file, counts_file):
     if len(node_list) > 0:
         print_tag_result(node_list)
 
+import re
+
+def map_rare_word(word):
+    
+    if re.search("\d+", word):
+        return "_Numeric_"
+
+    if word.isalpha() and word.isupper():
+        return "_All_Capitals_"
+
+    if word[-1].isupper():
+        return "_Last_Capital_"
+
+    return "_RARE_"
+
+def replace_rare_extend(train_file, common_file):
+
+    common_words = Set()
+    for word in common_file:
+        common_words.add(word.strip())
+
+    result = []
+    for line in train_file:
+        items = line.strip().split()
+
+        if len(items) > 0 and items[0] not in common_words:
+
+            items[0] = map_rare_word(items[0])
+            line = "%s %s\n" % (items[0], items[1])
+
+        result.append(line)
+
+    print "".join(result)
+
+def create_nodes_from_word_extend(hmm, common_words, word):
+    replace = None
+    if word not in common_words:
+        replace = map_rare_word(word)
+
+    ret = []
+    for tag in hmm.all_states:
+        emission_counts = 0
+        if replace:
+            emission_counts = hmm.emission_counts[replace, tag]
+        else:
+            emission_counts = hmm.emission_counts[word, tag]
+        if emission_counts > 0:
+            ret.append(Tag_Node(word, tag, replace))
+
+    return ret
+
+def extend_tag(common_file, test_file, counts_file):
+    hmm = Hmm(3)
+    hmm.read_counts(counts_file)
+
+    common_words = Set()
+    for word in common_file:
+        common_words.add(word.strip())
+
+    node_list = []
+    index = 0
+    for line in test_file:
+        word = line.strip()
+
+        if len(word) == 0:
+            print_tag_result(node_list, hmm)
+            node_list = []
+            continue
+
+        nodes = create_nodes_from_word_extend(hmm, common_words, word)
+        prev_nodes = []
+        if len(node_list) > 0:
+            prev_nodes = node_list[index - 1]
+
+        for node in nodes:
+            node.search(prev_nodes, hmm)
+
+        node_list.append(nodes)
+
+    if len(node_list) > 0:
+        print_tag_result(node_list)
+
 import argparse
 
 if __name__ == '__main__':
@@ -253,6 +335,18 @@ if __name__ == '__main__':
             parser.print_usage()
 
     elif args.action == "trigram_tag":
+        if args.common_file and args.test_file and args.counts_file:
+            trigram_tag(args.common_file, args.test_file, args.counts_file)
+        else:
+            parser.print_usage()
+
+    elif args.action == "replace_rare_extend":
+        if args.common_file and args.train_file:
+            replace_rare_extend(args.train_file, args.common_file)
+        else:
+            parser.print_usage()
+
+    elif args.action == "extend_tag":
         if args.common_file and args.test_file and args.counts_file:
             trigram_tag(args.common_file, args.test_file, args.counts_file)
         else:
