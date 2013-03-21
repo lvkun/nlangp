@@ -38,21 +38,17 @@ def replace_rare(train_file, common_file, map_rare):
         items = line.strip().split()
 
         if len(items) > 0:
-
             if items[0] not in common_words:
-
                 items[0] = map_rare(items[0])
-
             print "%s %s" % (items[0], items[1])
-
         else:
             print ""
-
 
 class Tagger:
 
     def __init__(self, common_file, counts_file):
         self.common_words = get_common_words(common_file)
+        
         self.hmm = Hmm(3)
         self.hmm.read_counts(counts_file)
 
@@ -97,10 +93,10 @@ class Tag_Node:
     def search(self, prev_nodes):
 
         #print "self: ", self.word, self.tag
-        #print "emission_prob: ", self.get_emission_prob(hmm)
+        #print "emission_prob: ", self.get_emission_prob()
 
         if len(prev_nodes) == 0:
-            #print "trigram: ", "*", "*", self.tag, self.get_trigram_prob(hmm, "*", "*", self.tag)
+            #print "trigram: ", "*", "*", self.tag, self.get_trigram_prob("*", "*", self.tag)
             self.value = self.get_trigram_prob("*", "*", self.tag) + self.get_emission_prob()
             #print ""
             return
@@ -113,13 +109,13 @@ class Tag_Node:
             #print "prev node: ", node.word, node.tag, "prev node value: ", node.value
 
             if node.prev:
-                #print "trigram: ", node.prev.tag, node.tag, self.tag, self.get_trigram_prob(hmm, node.prev.tag, node.tag, self.tag)
+                #print "trigram: ", node.prev.tag, node.tag, self.tag, self.get_trigram_prob(node.prev.tag, node.tag, self.tag)
                 curr_value = node.value + self.get_trigram_prob(node.prev.tag, node.tag, self.tag) + self.get_emission_prob()
             else:
-                #print "trigram: ", "*", node.tag, self.tag, self.get_trigram_prob(hmm, "*", node.tag, self.tag)
+                #print "trigram: ", "*", node.tag, self.tag, self.get_trigram_prob("*", node.tag, self.tag)
                 curr_value = node.value + self.get_trigram_prob("*", node.tag, self.tag) + self.get_emission_prob()
 
-            if curr_value > max_value or not max_prev_node:
+            if curr_value > max_value or (not max_prev_node):
                 max_prev_node = node
                 max_value = curr_value
 
@@ -183,7 +179,7 @@ class Trigram_Tagger(Tagger):
     def tag(self, test_file):
 
         node_list = []
-        index = 0
+
         for line in test_file:
             word = line.strip()
 
@@ -195,7 +191,7 @@ class Trigram_Tagger(Tagger):
             nodes = self.create_nodes_from_word(word)
             prev_nodes = []
             if len(node_list) > 0:
-                prev_nodes = node_list[index - 1]
+                prev_nodes = node_list[-1]
 
             for node in nodes:
                 node.search(prev_nodes)
@@ -207,18 +203,14 @@ class Trigram_Tagger(Tagger):
 
     def print_tag_result(self, node_list):
         # add STOP tag probability for each node at the end
-        list_length = len(node_list)
-
-        if list_length == 0:
+        if len(node_list) == 0:
             return
 
         max_node = None
-        max_value = 0
-        for node in node_list[list_length - 1]:
+        for node in node_list[-1]:
             node.stop()
 
-            if node.value > max_value or (not max_node):
-                max_value = node.value
+            if (not max_node) or node.value > max_node.value:
                 max_node = node
 
         max_node.print_out()
