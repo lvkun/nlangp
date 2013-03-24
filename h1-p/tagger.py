@@ -80,146 +80,84 @@ class Unigram_Tagger(Tagger):
 
 import math
 
-class Tag_Node:
-
-    def __init__(self, word, tag, replace, hmm):
-        self.word = word
-        self.tag = tag
-        self.value = 0
-        self.prev = None
-        self.replace = replace
-        self.hmm = hmm
-
-    def search(self, prev_nodes):
-
-        #print "self: ", self.word, self.tag
-        #print "emission_prob: ", self.get_emission_prob()
-
-        if len(prev_nodes) == 0:
-            #print "trigram: ", "*", "*", self.tag, self.get_trigram_prob("*", "*", self.tag)
-            self.value = self.get_trigram_prob("*", "*", self.tag) + self.get_emission_prob()
-            #print ""
-            return
-
-        max_prev_node = None
-        max_value = 0
-
-        for node in prev_nodes:
-            curr_value = 0
-            #print "prev node: ", node.word, node.tag, "prev node value: ", node.value
-
-            if node.prev:
-                #print "trigram: ", node.prev.tag, node.tag, self.tag, self.get_trigram_prob(node.prev.tag, node.tag, self.tag)
-                curr_value = node.value + self.get_trigram_prob(node.prev.tag, node.tag, self.tag) + self.get_emission_prob()
-            else:
-                #print "trigram: ", "*", node.tag, self.tag, self.get_trigram_prob("*", node.tag, self.tag)
-                curr_value = node.value + self.get_trigram_prob("*", node.tag, self.tag) + self.get_emission_prob()
-
-            if curr_value > max_value or (not max_prev_node):
-                max_prev_node = node
-                max_value = curr_value
-
-        #print "self.prev ", max_prev_node.word, max_prev_node.tag
-        self.prev = max_prev_node
-        self.value = max_value
-
-        #print ""
-
-    def stop(self):
-        if self.prev:
-            self.value += self.get_trigram_prob(self.prev.tag, self.tag, "STOP")
-        else:
-            self.value += self.get_trigram_prob("*", self.tag, "STOP")
-
-    def get_emission_prob(self):
-
-        if self.replace:
-            #print "get_emission_prob replace ", self.replace, self.tag, hmm.emission_counts[(self.replace, self.tag)]
-            count_word_tag = self.hmm.emission_counts[(self.replace, self.tag)]
-        else:
-            count_word_tag = self.hmm.emission_counts[(self.word, self.tag)]
-            #print "get_emission_prob word ", self.word, self.tag, hmm.emission_counts[(self.word, self.tag)]
-
-        #print "get_emission_prob total count: ", self.tag, hmm.ngram_counts[0][(self.tag,)]
-        return math.log(count_word_tag / self.hmm.ngram_counts[0][(self.tag,)])
-
-    def get_trigram_prob(self, yi_2, yi_1, yi):
-        trigram_count = self.hmm.ngram_counts[2][(yi_2, yi_1, yi)]
-        bigram_count = self.hmm.ngram_counts[1][(yi_2, yi_1)]
-        return math.log(trigram_count / bigram_count)
-
-    def print_out(self):
-        if self.prev:
-            self.prev.print_out()
-        print "%s %s" % (self.word, self.tag)
-
-
 class Trigram_Tagger(Tagger):
 
-    def map_word(self, word):
-        return map_rare_word(word)
+    def begin_tag(self):
+        self.pi = defaultdict(float)
+        self.pi[(-1, "*", "*")] = 1.0
+        self.bp = defaultdict(str)
+        self.words = []
 
-    def create_nodes_from_word(self, word):
-        replace = None
-        if word not in self.common_words:
-            replace = self.map_word(word)
-
-        ret = []
-        for tag in self.hmm.all_states:
-            emission_counts = 0
-            if replace:
-                emission_counts = self.hmm.emission_counts[replace, tag]
-            else:
-                emission_counts = self.hmm.emission_counts[word, tag]
-            if emission_counts > 0:
-                ret.append(Tag_Node(word, tag, replace, self.hmm))
-
-        return ret
+        self.index = -1
 
     def tag(self, test_file):
 
-        node_list = []
+        self.begin_tag()
 
         for line in test_file:
             word = line.strip()
 
             if len(word) == 0:
-                self.print_tag_result(node_list)
-                node_list = []
-                continue
+                self.print_out()
+                self.begin_tag()
 
-            nodes = self.create_nodes_from_word(word)
-            prev_nodes = []
-            if len(node_list) > 0:
-                prev_nodes = node_list[-1]
+            self.add_word(word)
 
-            for node in nodes:
-                node.search(prev_nodes)
+    def states(self, k):
 
-            node_list.append(nodes)
+        if k < 0:
+            return ["*"]
 
-        if len(node_list) > 0:
-            self.print_tag_result(node_list)
+        return self.hmm.all_states
 
-    def print_tag_result(self, node_list):
-        # add STOP tag probability for each node at the end
-        if len(node_list) == 0:
-            return
+    def add_word(self, word):
+        self.index += 1
+        self.words.append(word)
 
-        max_node = None
-        for node in node_list[-1]:
-            node.stop()
+        for u in self.states(self.index - 1):
+            for v in self.states(self.index):
 
-            if (not max_node) or node.value > max_node.value:
-                max_node = node
+                max_value = None
+                max_tag = None
+                for w in self.states(self.index - 2):
 
-        max_node.print_out()
+                    value = self.pi[(self.index - 1, w, u)] + self.trigram_prob(w, u, v) + self.emission(self.words[self.index], v) 
 
-        # for nodes in node_list:
-        #     for node in nodes:
-        #         print node.word, node.tag, node.value
-        #     print ""
-        print ""
+                    if max_value and value > max_value:
+                        max_value = value
+                        max_tag = w
+
+                self.pi[(self.index, u, v)] = max_value
+                self.bp[(self.index, u, v)] = w
+
+    def print_out(self):
+        # consider "stop" tag
+
+        tags = [""] * (self.index + 1)
+        max_value = None
+
+        for u in self.states(self.index - 1):
+            for v in self.states(self.index):
+
+                value = self.pi[(self.index, u, v)] + self.trigram_prob(u, v, "STOP")
+
+                if max_value and value > max_value:
+                    tags[-1] = v # yn
+                    tags[-2] = u # yn-1
+                    max_value = value
+
+        
+        for i in xrange(self.index - 2, 0, -1):
+            tags[i] = self.bp[(i + 2, tags[i+1], tags[i+2])]
+
+
+
+    def emission(self, word, tag):
+        return 0
+
+    def trigram_prob(self, yi_2, yi_1, yi):
+        return 0
+
 
 import re
 
